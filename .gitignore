@@ -1,0 +1,16 @@
+/old
+/venv
+.DS_STORE
+.idea
+.vscode
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.DS_Store
+*.env
+*.idea
+*.vscode
+*.pytest_cache

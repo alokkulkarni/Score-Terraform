@@ -1,0 +1,134 @@
+apiVersion: score.dev/v1b1
+metadata:
+  name: sample-app
+  environment: dev
+  provider: aws
+  region: eu-west-2
+  tags:
+    Project: SampleApplication
+    Environment: Development
+
+workloads:
+  web-app:
+    type: container
+    image: nginx:latest
+    resources:
+      cpu: 256
+      memory: 512
+    ports:
+      - port: 80
+        protocol: http
+    replicas: 2
+    healthCheck:
+      path: /
+      initialDelaySeconds: 30
+      periodSeconds: 10
+    routes:
+      - type: public
+        host: www.tech2finlok.com
+        path: /
+        port: 80
+      
+  api-service:
+    type: container
+    image: ${API_IMAGE_URI:-api-service:latest}
+    resources:
+      cpu: 512
+      memory: 1024
+    ports:
+      - port: 8080
+        protocol: http
+    replicas: 2
+    environment:
+      DB_HOST: ${resource.database.endpoint}
+      DB_USER: ${resource.database.secrets.username}
+      DB_PASSWORD: ${resource.database.secrets.password}
+    dependsOn:
+      - database
+    routes:
+      - type: public
+        host: api.tech2finlok.com
+        path: /
+        port: 8080
+      - type: internal
+        host: api-internal.tech2finlok.com
+        path: /
+        port: 8080
+      
+  database:
+    type: database
+    engine: postgres
+    version: "13.4"
+    resources:
+      instance: db.t3.small
+      storage: 20
+    backup:
+      retention: 7
+    credentials:
+      username: ${DB_USERNAME:-postgres}
+      password: ${DB_PASSWORD:-Password123!}
+
+resources:
+  networking:
+    type: vpc
+    cidr: 10.0.0.0/16
+    subnets:
+      public: 2
+      private: 2
+      
+  loadbalancer:
+    type: loadbalancer
+    public:
+      enabled: true
+      tlsCertificate: ${TLS_CERT_ARN:-arn:aws:acm:us-east-1:123456789012:certificate/example-cert-id}
+      subdomains:
+        - www
+        - api
+      securityPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      accessLogs:
+        enabled: true
+        bucket: ${LOG_BUCKET:-sample-app-logs}
+        prefix: "lb-logs"
+    internal:
+      enabled: true
+      tlsCertificate: ${INTERNAL_TLS_CERT_ARN:-arn:aws:acm:us-east-1:123456789012:certificate/internal-cert-id}
+      subdomains:
+        - api-internal
+      accessLogs:
+        enabled: true
+        bucket: ${LOG_BUCKET:-sample-app-logs}
+        prefix: "internal-lb-logs"
+      
+  dns:
+    type: route53
+    domain: tech2finlok.com
+    hostedZoneId: ${HOSTED_ZONE_ID:-Z01401743RCBCYIEA6X5T}
+    records:
+      - name: www
+        type: A
+        alias:
+          name: ${resource.loadbalancer.public.dns}
+          zoneId: ${resource.loadbalancer.public.hostedZoneId}
+      - name: api
+        type: A
+        alias:
+          name: ${resource.loadbalancer.public.dns}
+          zoneId: ${resource.loadbalancer.public.hostedZoneId}
+      - name: api-internal
+        type: A
+        alias:
+          name: ${resource.loadbalancer.internal.dns}
+          zoneId: ${resource.loadbalancer.internal.hostedZoneId}
+    healthChecks:
+      - name: web-app-health
+        endpoint: https://www.tech2finlok.com/health
+        type: HTTPS
+        resourcePath: /health
+        failureThreshold: 3
+        requestInterval: 30
+      - name: api-health
+        endpoint: https://api.tech2finlok.com/health
+        type: HTTPS
+        resourcePath: /health
+        failureThreshold: 3
+        requestInterval: 30
